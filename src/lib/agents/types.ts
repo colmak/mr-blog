@@ -47,4 +47,7 @@ export type StrategyOutput = {
   markdown: string;
   slug: string;
   sources: Source[];
+  excerpt?: string;
+  readingTime?: number;
+  wordCount?: number;
 };
