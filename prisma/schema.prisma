@@ -1,0 +1,190 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Blog posts with full content and metadata
+model Post {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  content     String   // Full markdown content
+  excerpt     String?  // Brief description
+  topic       String   // Original topic from generation
+  
+  // Post metadata
+  readingTime Int?     // Estimated reading time in minutes  
+  wordCount   Int?     // Word count
+  language    String   @default("en")
+  
+  // SEO and social
+  metaTitle       String?
+  metaDescription String?
+  ogImage         String?
+  
+  // Generation metadata
+  targetQuestions String   // JSON array of target questions
+  sources         String   // JSON array of research sources
+  generationTime  Int?     // Time taken to generate in ms
+  model           String?  // LLM model used
+  
+  // Status and timestamps
+  status      PostStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  
+  // Relations
+  tags        PostTag[]
+  views       PostView[]
+  cache       PostCache[]
+  
+  @@map("posts")
+}
+
+// Tags for categorization
+model Tag {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  color       String?   // Hex color for UI
+  createdAt   DateTime  @default(now())
+  
+  posts PostTag[]
+  
+  @@map("tags")
+}
+
+// Many-to-many relationship between posts and tags
+model PostTag {
+  postId String
+  tagId  String
+  
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  
+  @@id([postId, tagId])
+  @@map("post_tags")
+}
+
+// Analytics and performance tracking
+model PostView {
+  id        String   @id @default(cuid())
+  postId    String
+  
+  // Request information
+  userAgent String?
+  ip        String?
+  country   String?
+  referer   String?
+  
+  // Performance metrics
+  loadTime  Int?     // Page load time in ms
+  
+  viewedAt  DateTime @default(now())
+  
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  @@map("post_views")
+}
+
+// Caching layer for expensive operations
+model Cache {
+  id        String    @id @default(cuid())
+  key       String    @unique
+  value     String    // JSON stringified data
+  tags      String?   // Comma-separated cache tags for invalidation
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  @@map("cache")
+}
+
+// Post-specific cache entries (for faster lookups)
+model PostCache {
+  id     String    @id @default(cuid())
+  postId String
+  type   CacheType // Type of cached data
+  data   String    // JSON stringified cached data
+  
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  @@unique([postId, type])
+  @@map("post_cache")
+}
+
+// Research cache for expensive web scraping operations
+model ResearchCache {
+  id        String   @id @default(cuid())
+  query     String   @unique // Search query or URL
+  results   String   // JSON stringified research results
+  sources   String   // JSON array of source URLs
+  
+  // Metadata
+  sourcesCount Int?
+  totalWords   Int?
+  
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  @@map("research_cache")
+}
+
+// Performance metrics and monitoring
+model PerformanceMetric {
+  id        String      @id @default(cuid())
+  operation String      // e.g., "post_generation", "web_scraping", "analysis"
+  duration  Int         // Duration in milliseconds
+  status    String      // "success", "error", "timeout"
+  metadata  String?     // JSON metadata about the operation
+  
+  createdAt DateTime    @default(now())
+  
+  @@map("performance_metrics")
+}
+
+// Rate limiting storage
+model RateLimit {
+  id        String   @id @default(cuid())
+  key       String   @unique // IP address or user identifier
+  requests  Int      @default(1)
+  
+  windowStart DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("rate_limits")
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+  DELETED
+}
+
+enum CacheType {
+  RENDERED_HTML
+  PROCESSED_MARKDOWN
+  RELATED_POSTS
+  TAG_SUMMARY
+  READING_TIME
+  WORD_COUNT
+  SEO_DATA
+}
