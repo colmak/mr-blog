@@ -1,103 +1,165 @@
-import Image from "next/image";
+"use client";
+import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSlug from 'rehype-slug';
+import rehypeAutolinkHeadings from 'rehype-autolink-headings';
+import matter from 'gray-matter';
+import Link from 'next/link';
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [topic, setTopic] = useState('');
+  const [questionsText, setQuestionsText] = useState('');
+  const [maxSources, setMaxSources] = useState(6);
+  const [audience, setAudience] = useState('General tech audience');
+  const [tone, setTone] = useState('Informative and concise');
+  const [useLLM, setUseLLM] = useState(true);
+  const [model, setModel] = useState('gpt-4o-mini');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [markdown, setMarkdown] = useState('');
+  const [slug, setSlug] = useState('');
+  const [, setTitle] = useState('');
+  const [progress, setProgress] = useState<string[]>([]);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const generate = async () => {
+    setLoading(true);
+    setError(null);
+    setMarkdown('');
+    setProgress([]);
+    try {
+      const targetQuestions = questionsText.split('\n').map(s => s.trim()).filter(Boolean);
+      const res = await fetch('/api/generate/stream', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ topic, targetQuestions, maxSources, audience, tone, useLLM, model }),
+      });
+      if (!res.ok || !res.body) throw new Error('Failed to start generation');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const log = (line: string) => setProgress(prev => [...prev, line]);
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const chunk = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const lines = chunk.split('\n');
+          const eventLine = lines.find(l => l.startsWith('event:'));
+          const dataLine = lines.find(l => l.startsWith('data:'));
+          const event = eventLine ? eventLine.replace('event:','').trim() : '';
+          if (dataLine) {
+            try {
+              const payload = JSON.parse(dataLine.replace('data:','').trim());
+              if (event === 'status') {
+                log(`${payload.phase}: ${payload.message}`);
+              } else if (event === 'done') {
+                setSlug(payload.slug);
+                setTitle(payload.title);
+              } else if (event === 'error') {
+                throw new Error(payload.message || 'Generation error');
+              }
+            } catch {
+              // ignore malformed chunk
+            }
+          }
+        }
+      }
+      if (!slug) {
+        // fetch markdown after done event
+        const finalSlug = buffer.match(/"slug":"([^"]+)"/);
+        const s = finalSlug?.[1] || slug;
+        if (s) setSlug(s);
+      }
+      if (slug) {
+        const mdRes = await fetch(`/api/post/${slug}`);
+        const md = await mdRes.text();
+        const parsed = matter(md);
+        setMarkdown(parsed.content);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto max-w-5xl p-6 space-y-6">
+      <h1 className="text-3xl font-bold">MR Blog Generator</h1>
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="space-y-3">
+          <label className="block text-sm font-medium">Topic</label>
+          <input className="w-full border rounded p-2" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. Edge AI for IoT" />
+
+          <label className="block text-sm font-medium mt-4">Target Questions (one per line)</label>
+          <textarea className="w-full border rounded p-2 h-40" value={questionsText} onChange={(e) => setQuestionsText(e.target.value)} placeholder={`e.g.\nWhat is Edge AI?\nWhy use Edge AI in IoT?\nWhat are the challenges?`} />
+
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            <div>
+              <label className="block text-sm font-medium">Max Sources</label>
+              <input type="number" className="w-full border rounded p-2" value={maxSources} min={3} max={10} onChange={(e) => setMaxSources(parseInt(e.target.value || '6'))} />
+            </div>
+            <div className="col-span-3 grid grid-cols-3 gap-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={useLLM} onChange={(e) => setUseLLM(e.target.checked)} />
+                Use OpenAI
+              </label>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium">Model</label>
+                <input className="w-full border rounded p-2" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Audience</label>
+              <input className="w-full border rounded p-2" value={audience} onChange={(e) => setAudience(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Tone</label>
+              <input className="w-full border rounded p-2" value={tone} onChange={(e) => setTone(e.target.value)} />
+            </div>
+          </div>
+
+          <button disabled={loading || !topic} onClick={generate} className="mt-4 bg-black text-white px-4 py-2 rounded disabled:opacity-50">
+            {loading ? 'Generating…' : 'Generate Blog'}
+          </button>
+          {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+          {slug && (
+            <p className="text-sm mt-2">
+              Saved as: <code>content/posts/{slug}.md</code> ·{' '}
+              <Link className="text-blue-600 hover:underline" href={`/posts/${slug}`}>View post</Link>
+            </p>
+          )}
+          <p className="text-sm mt-2">
+            <Link className="text-blue-600 hover:underline" href="/posts">View all posts</Link>
+          </p>
+          {progress.length > 0 && (
+            <div className="mt-4 border rounded p-2 bg-gray-50 text-sm max-h-40 overflow-auto">
+              <div className="font-medium mb-1">Progress</div>
+              <ul className="list-disc list-inside space-y-1">
+                {progress.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        <div>
+          <label className="block text-sm font-medium">Preview</label>
+          <div className="border rounded p-4 bg-white prose max-w-none">
+            {markdown ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: 'wrap' }]]}>
+                {markdown}
+              </ReactMarkdown>
+            ) : (
+              <p className="text-gray-500">No content yet.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </main>
   );
 }
+ 

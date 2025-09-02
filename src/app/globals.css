@@ -24,3 +24,21 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Improve markdown readability */
+.prose { line-height: 1.75; }
+.prose h1 { font-size: 2rem; font-weight: 800; margin: 1.2em 0 0.5em; }
+.prose h2 { font-size: 1.5rem; font-weight: 700; margin: 1.4em 0 0.6em; }
+.prose h3 { font-size: 1.25rem; font-weight: 700; margin: 1.2em 0 0.5em; }
+.prose h1, .prose h2, .prose h3 { scroll-margin-top: 80px; }
+.prose p { margin: 0.8em 0; }
+.prose ul, .prose ol { margin: 0.8em 0 0.8em 1.25em; }
+.prose li { margin: 0.3em 0; }
+.prose blockquote { border-left: 4px solid #ddd; padding-left: 1rem; color: #555; margin: 1em 0; font-style: italic; }
+.prose img { margin: 1rem 0; border-radius: 0.25rem; }
+.prose pre { background: #0b1020; color: #e6e6e6; padding: 1rem; border-radius: 0.5rem; overflow: auto; }
+.prose code { background: rgba(0,0,0,0.05); padding: 0.1rem 0.3rem; border-radius: 0.25rem; }
+.prose a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; }
+.prose hr { margin: 2rem 0; border: 0; border-top: 1px solid #e5e7eb; }
+.prose table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.prose th, .prose td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; }
